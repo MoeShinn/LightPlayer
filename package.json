@@ -16,17 +16,43 @@
     "appId": "com.lightplayer.app",
     "productName": "LightPlayer",
     "compression": "maximum",
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "package.json"],
-    "electronLanguages": ["en-US", "vi"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/icon.ico",
+      "assets/logo.png",
+      "package.json"
+    ],
+    "electronLanguages": [
+      "en-US",
+      "vi"
+    ],
     "forceCodeSigning": false,
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "signAndEditExecutable": false,
-      "artifactName": "LightPlayer.exe"
+      "artifactName": "LightPlayer.exe",
+      "icon": "assets/icon.ico"
     },
     "fileAssociations": [
-      { "ext": ["mp4","mkv","webm","avi","mov","m4v"], "name": "Video" }
+      {
+        "ext": [
+          "mp4",
+          "mkv",
+          "webm",
+          "avi",
+          "mov",
+          "m4v"
+        ],
+        "name": "Video"
+      }
+    ],
+    "asarUnpack": [
+      "assets/icon.ico"
     ]
   }
 }

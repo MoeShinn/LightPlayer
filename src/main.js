@@ -42,7 +42,7 @@ function send(paths, append) {
 function createWindow() {
   win = new BrowserWindow({
     width: 1100, height: 660, minWidth: 480, minHeight: 320,
-    backgroundColor: '#0e0f11', title: 'LightPlayer', autoHideMenuBar: true,
+    backgroundColor: '#0e0f11', icon: path.join(__dirname, '..', 'assets', 'icon.ico'), title: 'LightPlayer', autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
   });
   Menu.setApplicationMenu(null);
