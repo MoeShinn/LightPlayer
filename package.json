@@ -1,0 +1,32 @@
+{
+  "name": "light-player",
+  "productName": "LightPlayer",
+  "version": "1.0.0",
+  "description": "Trinh xem video nhe dung HTML + Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lightplayer.app",
+    "productName": "LightPlayer",
+    "compression": "maximum",
+    "directories": { "output": "dist" },
+    "files": ["src/**/*", "package.json"],
+    "electronLanguages": ["en-US", "vi"],
+    "forceCodeSigning": false,
+    "win": {
+      "target": ["portable"],
+      "signAndEditExecutable": false,
+      "artifactName": "LightPlayer.exe"
+    },
+    "fileAssociations": [
+      { "ext": ["mp4","mkv","webm","avi","mov","m4v"], "name": "Video" }
+    ]
+  }
+}

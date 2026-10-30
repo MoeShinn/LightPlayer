@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>LightPlayer</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file: blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src file: blob:">
+<style>
+:root{--bg:#0e0f11;--panel:#16181c;--line:#262a30;--fg:#e7e9ec;--dim:#8b929c;--acc:#5ec8e5}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);font:13px "Segoe UI",system-ui,sans-serif;overflow:hidden;user-select:none}
+#app{display:flex;height:100%}
+#stage{position:relative;flex:1;min-width:0;background:#000;display:flex}
+video{width:100%;height:100%;object-fit:contain;background:#000;outline:none}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;color:var(--dim);text-align:center;line-height:1.6}
+#empty b{font-size:20px;color:var(--fg);font-weight:600}
+#empty .row{display:flex;gap:8px}
+button,select{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:26px 12px 8px;background:linear-gradient(transparent,rgba(0,0,0,.85));transition:opacity .2s}
+#stage.idle #bar,#stage.idle #top{opacity:0}#stage.idle{cursor:none}
+#top{position:absolute;top:0;left:0;right:0;padding:10px 14px;background:linear-gradient(rgba(0,0,0,.75),transparent);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .2s;pointer-events:none}
+#seekwrap{position:relative;height:16px;display:flex;align-items:center}
+#buf,#ab{position:absolute;height:4px;border-radius:2px;pointer-events:none}
+#buf{left:0;background:rgba(255,255,255,.25);width:0}
+#ab{background:rgba(255,200,60,.7);display:none}
+input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;width:100%;height:16px;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--acc) var(--p,0%),rgba(255,255,255,.18) var(--p,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:#fff;margin-top:-4px}
+#seek{position:relative;z-index:1}
+#ctl{display:flex;align-items:center;gap:4px;margin-top:4px}
+#ctl button{background:none;border:0;padding:6px 8px;font-size:15px;border-radius:6px}
+#ctl button:hover{background:rgba(255,255,255,.12)}
+#ctl button.on{color:var(--acc)}
+#time{margin:0 10px;color:var(--dim);font-variant-numeric:tabular-nums}
+#vol{width:80px}
+.sp{flex:1}
+#side{width:300px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column}
+#side.hide{display:none}
+#tools{padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;border-bottom:1px solid var(--line)}
+#q{grid-column:1/3;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--fg);padding:6px 10px;font:inherit;user-select:text}
+#info{padding:8px 12px;color:var(--dim);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+#info button{padding:2px 8px;font-size:12px}
+#list{flex:1;overflow:auto;list-style:none;padding:4px}
+#list li{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:6px;cursor:pointer}
+#list li:hover{background:rgba(255,255,255,.06)}
+#list li.cur{background:rgba(94,200,229,.14);color:var(--acc)}
+#list li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#list li i{font-style:normal;color:var(--dim);padding:0 4px;visibility:hidden}
+#list li:hover i{visibility:visible}#list li i:hover{color:#ff6b6b}
+#list li.drag{outline:1px dashed var(--acc)}
+#toast{position:absolute;top:44px;left:50%;transform:translateX(-50%);background:rgba(20,22,26,.92);padding:8px 16px;border-radius:20px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+#drop{position:absolute;inset:8px;border:2px dashed var(--acc);border-radius:10px;display:none;align-items:center;justify-content:center;font-size:18px;background:rgba(14,15,17,.85);z-index:8}
+</style></head>
+<body>
+<div id="app">
+ <div id="stage">
+  <video id="v" preload="auto"></video>
+  <div id="empty"><b>LightPlayer</b><span>Kéo thả video hoặc thư mục vào đây</span>
+   <div class="row"><button data-a="file">Mở file</button><button data-a="folder">Mở thư mục</button></div></div>
+  <div id="top"></div><div id="toast"></div><div id="drop">Thả để mở (giữ Shift = thêm vào list)</div>
+  <div id="bar">
+   <div id="seekwrap"><div id="buf"></div><div id="ab"></div><input id="seek" type="range" min="0" max="1000" value="0"></div>
+   <div id="ctl">
+    <button id="bPrev" title="Trước (P)">⏮</button><button id="bPlay" title="Phát/Dừng (Space)">▶</button><button id="bNext" title="Sau (N)">⏭</button>
+    <button id="bMute" title="Tắt tiếng (M)">🔊</button><input id="vol" type="range" min="0" max="100" value="80">
+    <span id="time">0:00 / 0:00</span><span class="sp"></span>
+    <button id="bAB" title="Lặp đoạn A-B (A)">A-B</button>
+    <button id="bSub" title="Nạp phụ đề (C)">CC</button>
+    <select id="speed" title="Tốc độ"><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option><option>3</option></select>
+    <button id="bShot" title="Chụp khung hình (S)">📷</button>
+    <button id="bPip" title="Picture-in-picture (I)">⧉</button>
+    <button id="bTop" title="Luôn trên cùng (T)">📌</button>
+    <button id="bList" title="Playlist (L)">☰</button>
+    <button id="bFull" title="Toàn màn hình (F)">⛶</button>
+   </div>
+  </div>
+ </div>
+ <aside id="side">
+  <div id="tools">
+   <button data-a="file">Mở file</button><button data-a="files">Mở nhiều file</button>
+   <button data-a="folder">Mở thư mục</button><button data-a="add">Thêm vào list</button>
+   <button id="bShuf">Ngẫu nhiên: tắt</button><button id="bRep">Lặp: tắt</button>
+   <input id="q" placeholder="Tìm trong playlist...">
+  </div>
+  <div id="info"><span id="count">0 mục</span><span><button id="bSort">A-Z</button> <button id="bClear">Xóa hết</button></span></div>
+  <ul id="list"></ul>
+ </aside>
+</div>
+<script>
+const $=s=>document.querySelector(s), v=$('#v'), stage=$('#stage');
+let list=[], idx=-1, shuffle=false, repeat=0, loopA=null, loopB=null, onTop=false, subURL=null, filter='', sortAsc=true, dragFrom=null;
+const REP=['tắt','tất cả','1 bài'];
+const fmt=t=>{if(!isFinite(t))return'0:00';t=Math.floor(t);const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
+const toURL=p=>'file:///'+encodeURI(p.replace(/\\/g,'/')).replace(/#/g,'%23').replace(/\?/g,'%3F');
+const base=p=>p.split(/[\\/]/).pop();
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>t.style.opacity=0,1400)}
+const store={get:k=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}},set:(k,x)=>{try{localStorage.setItem(k,JSON.stringify(x))}catch{}}};
+
+/* ---------- playlist ---------- */
+async function openPaths(paths,append=false){
+  const files=await api.expand(paths,true); if(!files.length){toast('Không tìm thấy video');return}
+  const had=list.length;
+  if(!append){list=[];idx=-1}
+  const known=new Set(list.map(x=>x.path));
+  files.forEach(f=>{if(!known.has(f))list.push({path:f,name:base(f)})});
+  render();
+  if(!append||idx<0)play(append?had:0); else toast('Đã thêm '+files.length+' file');
+}
+function render(){
+  const ul=$('#list');ul.textContent='';const q=filter.toLowerCase();
+  list.forEach((it,i)=>{
+    if(q&&!it.name.toLowerCase().includes(q))return;
+    const li=document.createElement('li');li.draggable=true;if(i===idx)li.className='cur';
+    li.innerHTML='<span></span><i title="Xóa">✕</i>';li.firstChild.textContent=it.name;li.title=it.path;
+    li.onclick=e=>{if(e.target.tagName==='I')remove(i);else play(i)};
+    li.ondragstart=()=>dragFrom=i;li.ondragover=e=>{e.preventDefault();li.classList.add('drag')};li.ondragleave=()=>li.classList.remove('drag');
+    li.ondrop=e=>{e.preventDefault();e.stopPropagation();li.classList.remove('drag');if(dragFrom===null)return;const cur=list[idx];const[m]=list.splice(dragFrom,1);list.splice(i,0,m);idx=list.indexOf(cur);dragFrom=null;render()};
+    ul.appendChild(li);
+  });
+  $('#count').textContent=list.length+' mục';
+  $('#empty').style.display=list.length?'none':'flex';
+  const c=ul.querySelector('.cur');c&&c.scrollIntoView({block:'nearest'});
+}
+function remove(i){const was=i===idx;list.splice(i,1);if(i<idx)idx--;else if(was){idx=-1;if(list.length)play(Math.min(i,list.length-1));else{v.removeAttribute('src');v.load();$('#top').textContent='';api.setTitle('LightPlayer')}}render()}
+async function play(i){
+  if(i<0||i>=list.length)return;
+  savePos();idx=i;const it=list[i];loopA=loopB=null;updAB();
+  v.src=toURL(it.path);v.playbackRate=+$('#speed').value;
+  $('#top').textContent=it.name;api.setTitle(it.name+' - LightPlayer');
+  clearSub();render();
+  const sub=await api.findSub(it.path);if(sub&&list[idx]===it)addSub(sub);
+  const pos=store.get('pos:'+it.path);
+  v.onloadedmetadata=()=>{if(pos&&pos>5&&pos<v.duration-10){v.currentTime=pos;toast('Tiếp tục từ '+fmt(pos))}};
+  v.play().catch(()=>{});
+}
+function savePos(){if(idx>=0&&list[idx]&&v.duration>30)store.set('pos:'+list[idx].path,v.currentTime)}
+function next(auto){
+  if(!list.length)return;
+  if(auto&&repeat===2){v.currentTime=0;v.play();return}
+  if(shuffle&&list.length>1){let r;do r=Math.floor(Math.random()*list.length);while(r===idx);return play(r)}
+  if(idx+1<list.length)play(idx+1);else if(repeat===1||!auto)play(0);
+}
+const prev=()=>{if(v.currentTime>3)v.currentTime=0;else play(idx>0?idx-1:list.length-1)};
+
+/* ---------- phu de ---------- */
+function srt2vtt(t){return'WEBVTT\n\n'+t.replace(/\r/g,'').replace(/(\d+:\d+:\d+),(\d+)/g,'$1.$2')}
+function clearSub(){[...v.querySelectorAll('track')].forEach(t=>t.remove());if(subURL)URL.revokeObjectURL(subURL);subURL=null}
+function addSub(s){clearSub();const txt=/^\uFEFF?WEBVTT/.test(s.text)?s.text:srt2vtt(s.text);
+  subURL=URL.createObjectURL(new Blob([txt],{type:'text/vtt'}));
+  const t=document.createElement('track');t.kind='subtitles';t.label=s.name;t.src=subURL;t.default=true;v.appendChild(t);t.track.mode='showing';toast('Phụ đề: '+s.name)}
+
+/* ---------- dieu khien ---------- */
+const togglePlay=()=>{if(idx<0)return;v.paused?v.play():v.pause()};
+const seekBy=d=>{v.currentTime=Math.max(0,Math.min(v.duration||0,v.currentTime+d))};
+const setVol=x=>{v.volume=Math.max(0,Math.min(1,x));v.muted=false;$('#vol').value=v.volume*100;store.set('vol',v.volume);updVol();toast('Âm lượng '+Math.round(v.volume*100)+'%')};
+function updVol(){$('#bMute').textContent=v.muted||v.volume===0?'🔇':'🔊';$('#vol').style.setProperty('--p',(v.muted?0:v.volume*100)+'%')}
+function setSpeed(r){r=Math.max(.25,Math.min(4,+r.toFixed(2)));v.playbackRate=r;const s=$('#speed');if(![...s.options].some(o=>+o.value===r))s.add(new Option(r,r));s.value=r;toast('Tốc độ '+r+'x')}
+function updAB(){$('#bAB').classList.toggle('on',loopA!==null);const ab=$('#ab');if(loopA!==null&&v.duration){ab.style.display='block';ab.style.left=loopA/v.duration*100+'%';ab.style.width=((loopB??v.currentTime)-loopA)/v.duration*100+'%'}else ab.style.display='none'}
+function toggleAB(){if(loopA===null){loopA=v.currentTime;toast('Điểm A: '+fmt(loopA))}else if(loopB===null){loopB=v.currentTime;if(loopB<=loopA){loopA=loopB=null}else{toast('Lặp '+fmt(loopA)+' → '+fmt(loopB));}}else{loopA=loopB=null;toast('Tắt lặp A-B')}updAB()}
+async function shot(){if(!v.videoWidth)return;const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
+  c.toBlob(async b=>{try{await navigator.clipboard.write([new ClipboardItem({'image/png':b})]);toast('Đã chụp, dán (Ctrl+V) vào Paint/Zalo/...')}catch{toast('Không copy được ảnh')}})}
+const toggleFull=()=>document.fullscreenElement?document.exitFullscreen():stage.requestFullscreen();
+const togglePip=()=>document.pictureInPictureElement?document.exitPictureInPicture():(v.readyState&&v.requestPictureInPicture().catch(()=>{}));
+const toggleList=()=>{$('#side').classList.toggle('hide');store.set('list',!$('#side').classList.contains('hide'))};
+const pickAdd=async(fn,append)=>{const p=await fn();if(p.length)openPaths(p,append)};
+const actions={file:async()=>{const p=await api.pickFiles();if(p.length)openPaths([p[0]],false)},files:()=>pickAdd(api.pickFiles,false),folder:()=>pickAdd(api.pickFolder,false),add:async()=>{const p=await api.pickFiles();if(p.length)openPaths(p,true)}};
+document.querySelectorAll('[data-a]').forEach(b=>b.onclick=actions[b.dataset.a]);
+
+v.addEventListener('timeupdate',()=>{
+  if(loopB!==null&&v.currentTime>=loopB)v.currentTime=loopA;
+  const d=v.duration||0;$('#seek').value=d?v.currentTime/d*1000:0;$('#seek').style.setProperty('--p',d?v.currentTime/d*100+'%':'0%');
+  $('#time').textContent=fmt(v.currentTime)+' / '+fmt(d);
+});
+v.addEventListener('progress',()=>{if(v.buffered.length&&v.duration)$('#buf').style.width=v.buffered.end(v.buffered.length-1)/v.duration*100+'%'});
+v.addEventListener('play',()=>$('#bPlay').textContent='⏸');v.addEventListener('pause',()=>{$('#bPlay').textContent='▶';savePos()});
+v.addEventListener('ended',()=>{if(idx>=0)store.set('pos:'+list[idx].path,0);next(true)});
+v.addEventListener('error',()=>{toast('Không phát được: '+(list[idx]?.name||''));if(list.length>1)setTimeout(()=>next(true),900)});
+v.addEventListener('volumechange',updVol);
+$('#seek').oninput=e=>{if(v.duration)v.currentTime=e.target.value/1000*v.duration};
+$('#vol').oninput=e=>setVol(e.target.value/100);
+$('#bPlay').onclick=togglePlay;$('#bPrev').onclick=prev;$('#bNext').onclick=()=>next(false);
+$('#bMute').onclick=()=>{v.muted=!v.muted};$('#bAB').onclick=toggleAB;$('#bShot').onclick=shot;$('#bPip').onclick=togglePip;$('#bList').onclick=toggleList;$('#bFull').onclick=toggleFull;
+$('#bSub').onclick=async()=>{const s=await api.pickSub();if(s)addSub(s)};
+$('#bTop').onclick=()=>{onTop=!onTop;api.alwaysOnTop(onTop);$('#bTop').classList.toggle('on',onTop);toast(onTop?'Luôn trên cùng: bật':'Luôn trên cùng: tắt')};
+$('#speed').onchange=e=>{v.playbackRate=+e.target.value;e.target.blur()};
+$('#bShuf').onclick=e=>{shuffle=!shuffle;e.target.textContent='Ngẫu nhiên: '+(shuffle?'bật':'tắt')};
+$('#bRep').onclick=e=>{repeat=(repeat+1)%3;e.target.textContent='Lặp: '+REP[repeat]};
+$('#bClear').onclick=()=>{list=[];idx=-1;v.removeAttribute('src');v.load();$('#top').textContent='';render()};
+$('#bSort').onclick=e=>{const cur=list[idx];list.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'})*(sortAsc?1:-1));e.target.textContent=sortAsc?'Z-A':'A-Z';sortAsc=!sortAsc;idx=list.indexOf(cur);render()};
+$('#q').oninput=e=>{filter=e.target.value;render()};
+$('#q').onkeydown=e=>e.stopPropagation();
+v.onclick=togglePlay;v.ondblclick=toggleFull;
+stage.addEventListener('wheel',e=>{e.preventDefault();setVol(v.volume+(e.deltaY<0?.05:-.05))},{passive:false});
+
+/* an thanh dieu khien khi khong dung chuot */
+let idle;const wake=()=>{stage.classList.remove('idle');clearTimeout(idle);idle=setTimeout(()=>{if(!v.paused)stage.classList.add('idle')},2500)};
+stage.addEventListener('mousemove',wake);wake();
+
+/* phim tat */
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='SELECT'&&e.key!=='Escape')e.target.blur();
+  const k=e.key,K=k.toLowerCase();
+  if(e.ctrlKey&&K==='o'){e.preventDefault();return actions.folder()}
+  if(e.ctrlKey||e.altKey)return;
+  const map={' ':togglePlay,k:togglePlay,f:toggleFull,m:()=>{v.muted=!v.muted},n:()=>next(false),p:prev,l:toggleList,s:shot,i:togglePip,a:toggleAB,t:()=>$('#bTop').click(),c:()=>$('#bSub').click(),o:actions.file,
+    ArrowRight:()=>seekBy(e.shiftKey?15:5),ArrowLeft:()=>seekBy(e.shiftKey?-15:-5),ArrowUp:()=>setVol(v.volume+.05),ArrowDown:()=>setVol(v.volume-.05),
+    '[':()=>setSpeed(v.playbackRate-.25),']':()=>setSpeed(v.playbackRate+.25),'\\':()=>setSpeed(1),
+    ',':()=>{v.pause();seekBy(-1/30)},'.':()=>{v.pause();seekBy(1/30)},Escape:()=>document.fullscreenElement&&document.exitFullscreen()};
+  const f=map[k]||map[K];if(f){e.preventDefault();f()}wake();
+});
+
+/* keo tha */
+let depth=0;
+window.addEventListener('dragenter',e=>{if(dragFrom!==null)return;depth++;$('#drop').style.display='flex'});
+window.addEventListener('dragleave',()=>{if(--depth<=0){depth=0;$('#drop').style.display='none'}});
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#drop').style.display='none';
+  const p=[...e.dataTransfer.files].map(f=>api.pathOf(f)).filter(Boolean);if(p.length)openPaths(p,e.shiftKey)});
+api.onOpen(d=>openPaths(d.paths,d.append));
+window.addEventListener('beforeunload',savePos);
+
+/* khoi tao */
+const sv=store.get('vol');v.volume=sv??.8;$('#vol').value=v.volume*100;updVol();
+if(store.get('list')===false)$('#side').classList.add('hide');
+render();
+</script></body></html>
