@@ -1,33 +1,37 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const VIDEO_EXT = ['.mp4','.mkv','.webm','.m4v','.mov','.avi','.ogv','.ogg','.mp3','.m4a','.flac','.wav','.opus','.ts'];
+const VIDEO_EXT = new Set(['.mp4','.mkv','.webm','.m4v','.mov','.avi','.ogv','.ogg','.mp3','.m4a','.flac','.wav','.opus','.ts']);
+const EXT_LIST = [...VIDEO_EXT].map(e => e.slice(1));
 let win;
 
-// Tang toc phan cung + ho tro HEVC tren Windows 10 (neu GPU ho tro)
+// ---- Cau hinh Chromium (phai dat truoc khi app ready) ----
+// enable-features / disable-features chi duoc goi 1 lan moi loai (goi lai se ghi de)
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+Menu.setApplicationMenu(null); // khong dung dung menu mac dinh cua Electron
 
 function argPaths(argv) {
-  return argv.slice(app.isPackaged ? 1 : 2).filter(a => !a.startsWith('--') && fs.existsSync(a));
+  return argv.slice(app.isPackaged ? 1 : 2).filter(a => a && !a.startsWith('--') && fs.existsSync(a));
 }
 
+// Quet thu muc: dung withFileTypes de khoi stat tung file
 function expand(paths, recursive = true) {
   const out = [];
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   const walk = (p) => {
     let st; try { st = fs.statSync(p); } catch { return; }
-    if (st.isDirectory()) {
-      let items = []; try { items = fs.readdirSync(p); } catch { return; }
-      items.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-      for (const it of items) {
-        const full = path.join(p, it);
-        let s; try { s = fs.statSync(full); } catch { continue; }
-        if (s.isDirectory()) { if (recursive) walk(full); }
-        else if (VIDEO_EXT.includes(path.extname(full).toLowerCase())) out.push(full);
-      }
-    } else if (VIDEO_EXT.includes(path.extname(p).toLowerCase())) out.push(p);
+    if (!st.isDirectory()) { if (VIDEO_EXT.has(path.extname(p).toLowerCase())) out.push(p); return; }
+    let items; try { items = fs.readdirSync(p, { withFileTypes: true }); } catch { return; }
+    items.sort((a, b) => collator.compare(a.name, b.name));
+    for (const it of items) {
+      const full = path.join(p, it.name);
+      if (it.isDirectory()) { if (recursive) walk(full); }
+      else if (VIDEO_EXT.has(path.extname(it.name).toLowerCase())) out.push(full);
+    }
   };
   paths.forEach(walk);
   return out;
@@ -40,14 +44,19 @@ function send(paths, append) {
 }
 
 function createWindow() {
+  // File mo kem theo lan khoi dong dau di thang vao renderer qua argv (khong cho did-finish-load + IPC)
+  const initial = argPaths(process.argv);
   win = new BrowserWindow({
-    width: 1100, height: 660, minWidth: 480, minHeight: 320,
+    width: 1100, height: 660, minWidth: 480, minHeight: 320, show: false,
     backgroundColor: '#0e0f11', icon: path.join(__dirname, '..', 'assets', 'icon.ico'), title: 'LightPlayer', autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false }
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      backgroundThrottling: false, spellcheck: false, devTools: !app.isPackaged,
+      additionalArguments: ['--lp-open=' + encodeURIComponent(JSON.stringify(initial))]
+    }
   });
-  Menu.setApplicationMenu(null);
+  win.once('ready-to-show', () => win.show());
   win.loadFile(path.join(__dirname, 'index.html'));
-  send(argPaths(process.argv), false);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -56,13 +65,61 @@ else {
     if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
     send(argPaths(argv), true); // mo them file -> them vao list
   });
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    createWindow();
+    setTimeout(pruneThumbs, 15000); // don cache luc ranh, khong chan luc khoi dong
+  });
   app.on('window-all-closed', () => app.quit());
 }
 
+/* ---------------- Thumbnail (cache tren dia) ---------------- */
+let thumbDir = null;
+const thumbPath = (file) => {
+  let st; try { st = fs.statSync(file); } catch { return null; }
+  if (!thumbDir) { thumbDir = path.join(app.getPath('userData'), 'thumbs'); fs.mkdirSync(thumbDir, { recursive: true }); }
+  const key = require('crypto').createHash('sha1').update(`${file}|${st.size}|${st.mtimeMs}`).digest('hex').slice(0, 24);
+  return path.join(thumbDir, key + '.jpg');
+};
+const fileUrl = (p) => require('url').pathToFileURL(p).href;
+
+function resizeJpeg(buf) {
+  const img = nativeImage.createFromBuffer(buf);
+  if (img.isEmpty()) return null;
+  const out = img.getSize().width > 320 ? img.resize({ width: 320, quality: 'good' }) : img;
+  return out.toJPEG(82);
+}
+
+// Tra ve {url} neu da co thumbnail (cache hoac anh bia nhung trong file); null neu can lay khung hinh
+ipcMain.handle('thumb-get', (_e, file) => {
+  const f = thumbPath(file); if (!f) return null;
+  if (fs.existsSync(f)) return { url: fileUrl(f) };
+  const cover = require('./cover').getCover(file); // nap lazy, chi khi can
+  if (cover) {
+    const jpg = resizeJpeg(cover);
+    if (jpg) { fs.writeFileSync(f, jpg); return { url: fileUrl(f) }; }
+  }
+  return null;
+});
+ipcMain.handle('thumb-save', async (_e, file, data) => {
+  const f = thumbPath(file); if (!f) return null;
+  await fs.promises.writeFile(f, Buffer.from(data));
+  return fileUrl(f);
+});
+function pruneThumbs() {
+  if (!thumbDir) return;
+  fs.promises.readdir(thumbDir).then(async (names) => {
+    if (names.length <= 3000) return;
+    const rows = [];
+    for (const n of names) { try { rows.push([n, (await fs.promises.stat(path.join(thumbDir, n))).mtimeMs]); } catch {} }
+    rows.sort((a, b) => a[1] - b[1]);
+    for (const [n] of rows.slice(0, rows.length - 2000)) fs.promises.unlink(path.join(thumbDir, n)).catch(() => {});
+  }).catch(() => {});
+}
+
+/* ---------------- IPC khac ---------------- */
 ipcMain.handle('pick-files', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Video / Audio', extensions: VIDEO_EXT.map(e => e.slice(1)) }, { name: 'Tat ca', extensions: ['*'] }] });
+    filters: [{ name: 'Video / Audio', extensions: EXT_LIST }, { name: 'Tat ca', extensions: ['*'] }] });
   return r.canceled ? [] : r.filePaths;
 });
 ipcMain.handle('pick-folder', async () => {
