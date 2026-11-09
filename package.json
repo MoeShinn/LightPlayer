@@ -1,7 +1,7 @@
 {
   "name": "light-player",
   "productName": "LightPlayer",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Trinh xem video nhe dung HTML + Electron",
   "main": "src/main.js",
   "scripts": {
@@ -11,7 +11,8 @@
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "rcedit": "^4.0.1"
   },
   "build": {
     "appId": "com.lightplayer.app",
@@ -55,6 +56,7 @@
         ],
         "name": "Video"
       }
-    ]
+    ],
+    "afterPack": "scripts/after-pack.js"
   }
 }

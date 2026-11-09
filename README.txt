@@ -33,3 +33,7 @@ Space/K play-pause | ←/→ tua 5s (Shift 15s) | ↑/↓ am luong | M tat tieng
 F fullscreen | N/P bai sau/truoc | [ ] giam/tang toc do | \ toc do 1x
 A danh dau doan lap A-B | S chup khung hinh (copy clipboard) | I picture-in-picture
 L an/hien playlist | T luon tren cung | C nap phu de | , . lui/tien 1 khung | O mo file | Ctrl+O mo folder
+
+ICON
+- Icon exe duoc nhung bang scripts/after-pack.js (rcedit) luc build. Neu sau khi build van thay icon cu,
+  Windows dang giu cache icon: xoa shortcut cu va tao lai (hoac khoi dong lai Explorer).
